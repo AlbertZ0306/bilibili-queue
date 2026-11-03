@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createController } from '../controller.js';
-import { durationSummary, fetchVideoMetadata, formatDuration, metadataForPage, safeCover } from '../metadata.js';
+import { durationSummary, fetchVideoMetadata, formatDuration, metadataForPage, metadataFromPageHTML, safeCover } from '../metadata.js';
 
 const bvid = 'BV1xx411c7mD';
 const data = { bvid, title: '测试课程', duration: 999, pages: [
@@ -48,12 +48,68 @@ test('cover images accept only the Bilibili image CDN and normalize HTTPS', () =
   assert.equal(metadataForPage({...data,pic:'https://i0.hdslb.com/bfs/archive/a.jpg'},1).coverChecked,true);
 });
 
-test('old complete items attempt missing covers only once when the API fails', async () => {
+test('old complete items make one bounded API/page attempt for missing covers and keep cached details', async () => {
   let calls=0;
   const h=setup(async()=>{calls++;return {ok:false,status:403};},{items:[{id:'legacy',bvid,page:1,title:'已缓存标题',duration:60,metadataStatus:'ready'}],loop:false,direction:'forward'});
   await h.command('GET');await until(()=>h.items()[0].coverChecked===true);
   for(let i=0;i<5;i++)await h.command('GET');
-  assert.equal(calls,1);assert.equal(h.items()[0].title,'已缓存标题');assert.equal(h.items()[0].metadataStatus,'ready');
+  assert.equal(calls,2);assert.equal(h.items()[0].title,'已缓存标题');assert.equal(h.items()[0].metadataStatus,'ready');
+});
+
+const pageHTML = value => `<html><script>window.__INITIAL_STATE__=${JSON.stringify({videoData:value})};(function(){window.__mustNotRun=true})()</script></html>`;
+
+test('HTTP 412 falls back to public-page metadata without credentials or repeated API requests', async () => {
+  const calls=[];
+  const result=await fetchVideoMetadata(bvid,async(url,options)=>{
+    calls.push({url,options});
+    return url.startsWith('https://api.')?{ok:false,status:412}:{ok:true,text:async()=>pageHTML(data)};
+  });
+  assert.equal(result.title,data.title);assert.equal(calls.length,2);
+  assert.equal(calls[1].url,`https://www.bilibili.com/video/${bvid}/`);
+  assert(calls.every(x=>x.options.credentials==='omit'&&x.options.signal instanceof AbortSignal));
+  assert.equal(metadataForPage(result,2).duration,125);
+});
+
+test('embedded state handles quotes, braces, unicode and trailing JavaScript without executing it', () => {
+  const tricky={...data,title:'转义 "引号"、反斜杠 \\ 和 } { 中文'};
+  globalThis.__mustNotRun=false;
+  const result=metadataFromPageHTML(pageHTML(tricky),bvid);
+  assert.equal(result.title,tricky.title);assert.equal(globalThis.__mustNotRun,false);
+  delete globalThis.__mustNotRun;
+  assert.throws(()=>metadataFromPageHTML('<script>window.__INITIAL_STATE__=(()=>{throw 1})()</script>',bvid));
+  assert.throws(()=>metadataFromPageHTML('<script>window.__INITIAL_STATE__={broken}</script>',bvid));
+});
+
+test('unrelated, incomplete and challenge pages cannot become video metadata', () => {
+  assert.throws(()=>metadataFromPageHTML(pageHTML({...data,bvid:'BV1Q541167Qg'}),bvid));
+  assert.throws(()=>metadataFromPageHTML(pageHTML({...data,pages:null}),bvid));
+  assert.throws(()=>metadataFromPageHTML('<h1>访问受限</h1><title>验证</title>',bvid));
+  assert.throws(()=>metadataFromPageHTML(pageHTML({...data,bvid:undefined}),bvid));
+});
+
+test('when both sources fail, show a specific restriction message rather than a nonexistent-video error', async () => {
+  let calls=0;
+  await assert.rejects(fetchVideoMetadata(bvid,async()=>{calls++;return{ok:false,status:412};}),/B站暂时限制.*412.*打开视频页/);
+  assert.equal(calls,2);
+  await assert.rejects(fetchVideoMetadata('not-a-bv',async()=>{throw Error('must not fetch');}),/BV 号格式/);
+});
+
+test('three duplicate entries share one API and one page fallback, including covers and total duration', async () => {
+  const calls=[];
+  const h=setup(async url=>{
+    calls.push(url);
+    return url.startsWith('https://api.')?{ok:false,status:412}:{ok:true,text:async()=>pageHTML({...data,pic:'https://i0.hdslb.com/bfs/archive/test.jpg'})};
+  });
+  await h.command('ADD',{text:`${bvid}\n${bvid}\n${bvid}`});
+  await until(()=>h.items().length===3&&h.items().every(x=>x.metadataStatus==='ready'));
+  assert.equal(calls.length,2);assert.deepEqual(h.items().map(x=>x.duration),[60,60,60]);
+  assert(h.items().every(x=>x.cover==='https://i0.hdslb.com/bfs/archive/test.jpg'));
+  assert.equal(durationSummary(h.items()).seconds,180);
+});
+
+test('a working API returns directly without a webpage fetch', async () => {
+  let calls=0;const result=await fetchVideoMetadata(bvid,async()=>{calls++;return response(data);});
+  assert.equal(calls,1);assert.equal(result.title,data.title);
 });
 
 test('adding duplicates and multiple P entries shares a metadata request and stores per-P values', async () => {

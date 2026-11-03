@@ -207,10 +207,14 @@ export function createController(api, fetcher = fetch) {
         if (!notes[message.status]) return { ignored: true };
         session.status = message.status;
         session.note = notes[message.status];
-        const item = list.items.find(x => x.id === session.itemId);
-        if (!item.title && typeof message.title === 'string' && message.title.trim()) item.title = message.title.trim().slice(0, 180);
-        if (!validDuration(item.duration) && validDuration(message.duration)) item.duration = Math.round(message.duration);
-        if (item.title && validDuration(item.duration)) { item.metadataStatus = 'ready'; item.metadataError = ''; }
+        const current = list.items.find(x => x.id === session.itemId);
+        // The same BV/P may occur multiple times. One real player can repair all copies.
+        for (const item of list.items) {
+          if (item.bvid !== current.bvid || item.page !== current.page) continue;
+          if (!item.title && typeof message.title === 'string' && message.title.trim()) item.title = message.title.trim().slice(0, 180);
+          if (!validDuration(item.duration) && validDuration(message.duration)) item.duration = Math.round(message.duration);
+          if (item.title && validDuration(item.duration)) { item.metadataStatus = 'ready'; item.metadataError = ''; }
+        }
         await save(state);
       }
       return { state };

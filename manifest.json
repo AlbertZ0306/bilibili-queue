@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "bilibili-queue",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "description": "粘贴 BV 号或 B 站视频链接，支持顺序/逆序播放、拖动排序、1～3 倍速、实时进度、标题与时长、分 P 和列表循环。",
   "minimum_chrome_version": "112",
   "permissions": [

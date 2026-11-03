@@ -31,18 +31,69 @@ export function safeCover(value) {
   } catch { return ''; }
 }
 
-export async function fetchVideoMetadata(bvid, fetcher = fetch) {
-  const url = new URL('https://api.bilibili.com/x/web-interface/view');
-  url.searchParams.set('bvid', bvid);
-  const response = await fetcher(url.href, { credentials: 'omit', signal: AbortSignal.timeout(8000) });
-  if (!response.ok) throw new Error(`视频信息请求失败（HTTP ${response.status}）`);
-  const body = await response.json();
-  if (body.code !== 0) throw new Error(typeof body.message === 'string' ? body.message.slice(0, 120) : '暂时无法获取视频信息');
-  if (!body.data || typeof body.data.title !== 'string' || !body.data.title.trim() || !Array.isArray(body.data.pages)) {
+function validateMetadata(data, bvid) {
+  if (!data || typeof data.title !== 'string' || !data.title.trim() || !Array.isArray(data.pages)) {
     throw new Error('视频信息不完整，请稍后刷新');
   }
-  if (body.data.bvid && body.data.bvid !== bvid) throw new Error('返回的视频信息不匹配');
-  return body.data;
+  if (data.bvid && data.bvid !== bvid) throw new Error('返回的视频信息不匹配');
+  return data;
+}
+
+export function metadataFromPageHTML(html, bvid) {
+  if (typeof html !== 'string' || html.length > 5 * 1024 * 1024) throw new Error('网页视频信息不可用');
+  // Read JSON already embedded in the public video page. Never execute page scripts.
+  for (const match of html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script\s*>/gi)) {
+    const script = match[1], assignment = /(?:^|[;\s])(?:window\.)?__INITIAL_STATE__\s*=\s*/.exec(script);
+    if (!assignment) continue;
+    const start = assignment.index + assignment[0].length;
+    if (script[start] !== '{') continue;
+    let depth = 0, quoted = false, escaped = false;
+    for (let i = start; i < script.length; i++) {
+      const char = script[i];
+      if (quoted) {
+        if (escaped) escaped = false;
+        else if (char === '\\') escaped = true;
+        else if (char === '"') quoted = false;
+      } else if (char === '"') quoted = true;
+      else if (char === '{') depth++;
+      else if (char === '}' && --depth === 0) {
+        try {
+          const data = JSON.parse(script.slice(start, i + 1)).videoData;
+          if (data?.bvid === bvid) return validateMetadata(data, bvid);
+        } catch { /* malformed or unrelated page data */ }
+        break;
+      }
+    }
+  }
+  throw new Error('网页未提供匹配的视频信息');
+}
+
+export async function fetchVideoMetadata(bvid, fetcher = fetch) {
+  if (!/^BV[a-zA-Z0-9]{10}$/.test(bvid)) throw new Error('BV 号格式不正确');
+  const deadline = Date.now() + 10000;
+  const options = timeout => ({ credentials: 'omit', signal: AbortSignal.timeout(Math.max(1, Math.min(timeout, deadline - Date.now()))) });
+  let failure;
+  try {
+    const url = new URL('https://api.bilibili.com/x/web-interface/view');
+    url.searchParams.set('bvid', bvid);
+    const response = await fetcher(url.href, options(6000));
+    if (!response.ok) throw new Error([412, 429].includes(response.status)
+      ? `B站暂时限制信息请求（HTTP ${response.status}），可打开视频页后补全`
+      : `视频信息请求失败（HTTP ${response.status}）`);
+    const body = await response.json();
+    if (body.code !== 0) throw new Error(body.code === -412
+      ? `B站暂时限制信息请求（${body.code}），可打开视频页后补全`
+      : typeof body.message === 'string' && body.message.trim() ? body.message.slice(0, 120) : '暂时无法获取视频信息');
+    return validateMetadata(body.data, bvid);
+  } catch (error) { failure = error; }
+  // One bounded fallback, sharing the same request across duplicate queue entries.
+  // Keep requests anonymous; no cookie access, proxy, challenge solving or retry loop.
+  try {
+    if (Date.now() >= deadline) throw failure;
+    const response = await fetcher(`https://www.bilibili.com/video/${bvid}/`, options(6000));
+    if (!response.ok) throw failure;
+    return metadataFromPageHTML(await response.text(), bvid);
+  } catch { throw failure; }
 }
 
 export function metadataForPage(data, page) {

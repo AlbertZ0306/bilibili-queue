@@ -86,6 +86,20 @@ test('legacy playlists gain a default speed and corrupt preferences are normaliz
   assert.equal(list.playbackRate, 1); assert.equal(list.rateRevision, 0);
 });
 
+test('real playback metadata repairs all duplicate BV/P entries but never another P or BV', async () => {
+  const h=harness();
+  await h.command('ADD',{text:`${BV1}\n${BV1}\nhttps://www.bilibili.com/video/${BV1}/?p=2\n${BV2}`});
+  await h.command('START');await h.content('BQ_HELLO');
+  await h.content('BQ_STATUS',{status:'playing',title:'播放器读到的正确标题',duration:186});
+  const items=(await h.command('GET')).state.list.items;
+  for(const item of items.slice(0,2)){
+    assert.equal(item.title,'播放器读到的正确标题');assert.equal(item.duration,186);
+    assert.equal(item.metadataStatus,'ready');assert.equal(item.metadataError,'');
+  }
+  assert.equal(items[2].page,2);assert.equal(items[2].duration,null);assert.equal(items[2].title,'');
+  assert.equal(items[3].title,'');assert.equal(items[3].duration,null);
+});
+
 test('parse BV, p, mobile URL, multiple separators, and reject external or malformed links', () => {
   assert.deepEqual(parseVideo(BV1), { bvid: BV1, page: 1 });
   assert.deepEqual(parseVideo(`https://m.bilibili.com/video/${BV1}?p=3&share_source=copy`), { bvid: BV1, page: 3 });
