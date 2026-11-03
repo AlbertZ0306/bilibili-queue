@@ -1,0 +1,24 @@
+# Dependencies and local build/test state
+node_modules/
+.cache/
+.playwright/
+playwright-report/
+test-results/
+coverage/
+work/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Packaged releases and editor/OS files
+*.zip
+*.crx
+*.log
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
