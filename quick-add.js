@@ -79,9 +79,14 @@
       host.remove();
       return;
     }
-    if (host.isConnected) return;
     const title = document.querySelector('.video-info-title-inner > h1, h1.video-title, #viewbox_report h1');
-    title?.after(host);
+    // An extra child in the server-rendered title can make Vue rebuild the app
+    // during hydration, removing the Bilibili header. Wait for Vue's marker to clear.
+    if (!title || title.closest('[data-server-rendered]')) {
+      host.remove();
+      return;
+    }
+    if (host.previousElementSibling !== title) title.after(host);
   }
 
   button.addEventListener('click', async event => {

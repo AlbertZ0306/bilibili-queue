@@ -27,7 +27,10 @@ async function main() {
         <style>:root{--text1:#e3e5e7;background:#18191b;color:var(--text1)}
         .video-info-title-inner{width:340px;overflow:hidden}
         h1{width:100%;margin:0}</style>
-        <div class="video-info-title-inner"><h1 class="video-title">${'很长的视频标题'.repeat(9)}</h1></div>`
+        <div id="app" data-server-rendered="true">
+          <header id="biliMainHeader">首页　搜索　登录</header>
+          <div class="video-info-title-inner"><h1 class="video-title">${'很长的视频标题'.repeat(9)}</h1></div>
+        </div>`
     }));
     const popup = await context.newPage();
     await popup.goto(`chrome-extension://${worker.url().split('/')[2]}/popup.html`);
@@ -36,7 +39,12 @@ async function main() {
     await video.goto(videoURL);
     const host = video.locator('#bq-quick-add');
     const button = host.locator('button');
+    // Hold the server markup through a mount interval, then simulate hydration.
+    await video.waitForTimeout(1200);
+    assert.equal(await host.count(), 0, 'the server-rendered title must be left intact');
+    await video.locator('#app').evaluate(app => app.removeAttribute('data-server-rendered'));
     await button.waitFor();
+    assert(await video.locator('#biliMainHeader').isVisible());
     const fits = await button.evaluate(el => {
       const host = el.getRootNode().host;
       return el.getBoundingClientRect().right <= host.parentElement.getBoundingClientRect().right &&
@@ -68,7 +76,8 @@ async function main() {
     assert.match(await button.textContent(), /已加入播放列表/);
     assert.deepEqual((await state()).list.items.map(item => item.page), [1, 2]);
     assert.equal(await host.count(), 1);
-    console.log('PASS: title placement, trusted clicks, same-page addition, duplicate protection, and SPA P2 keyboard addition');
+    assert(await video.locator('#biliMainHeader').isVisible());
+    console.log('PASS: waits for delayed hydration, preserves the header, and adds P2 after SPA navigation');
 
     await popup.locator('#open-add').click();
     await popup.locator('#input').fill(videoURL + '?p=2');
