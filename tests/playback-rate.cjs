@@ -25,7 +25,7 @@ async function poll(fn) {
     const errors = []; context.on('weberror', e => errors.push(e.error().message));
     const worker = context.serviceWorkers()[0] || await context.waitForEvent('serviceworker');
     await context.route('https://api.bilibili.com/**', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ code: 0, data: { title: '倍速测试', pages: [{ page: 1, duration: 120 }] } }) }));
-    await context.route('https://www.bilibili.com/**', route => route.fulfill({ contentType: 'text/html', body: `<h1>倍速测试</h1><div class="bpx-player-video-wrap"><video muted controls style="width:600px;height:350px" src="data:audio/wav;base64,${wave()}"></video></div>` }));
+    await context.route('https://www.bilibili.com/**', route => route.fulfill({ contentType: 'text/html; charset=utf-8', body: `<h1>倍速测试</h1><div class="bpx-player-video-wrap"><video muted controls style="width:600px;height:350px" src="data:audio/wav;base64,${wave()}"></video></div><textarea aria-label="评论"></textarea>` }));
     const page = await context.newPage();
     const popupURL = `chrome-extension://${worker.url().split('/')[2]}/popup.html`;
     await page.goto(popupURL);
@@ -53,6 +53,23 @@ async function poll(fn) {
       assert.equal(videoPage.url(), url);
     }
     console.log('PASS: 1x/1.5x/2x/3x apply immediately without resuming, seeking or navigating');
+    for (const [key, expected] of [
+      ['Shift+Period', 2], ['Shift+Period', 3],
+      ['Shift+Comma', 2], ['Shift+Comma', 1.5], ['Shift+Comma', 1],
+      ['Shift+Period', 1.5]
+    ]) {
+      await videoPage.keyboard.press(key);
+      await poll(async () => await rate() === expected);
+      await poll(async () => await page.locator('#playback-rate').inputValue() === String(expected));
+    }
+    const comment = videoPage.getByRole('textbox', { name: '评论' });
+    await comment.press('Shift+Comma');
+    await comment.press('Shift+Period');
+    assert.equal(await comment.inputValue(), '<>');
+    assert.equal((await cmd('GET')).state.list.playbackRate, 1.5);
+    const paused = await videoPage.locator('video').evaluate(v => v.paused && Math.abs(v.currentTime - 20) < .01);
+    assert(paused);
+    console.log('PASS: < and > step the saved speed while paused and preserve typing in comments');
     await videoPage.evaluate(() => { document.querySelector('video').playbackRate = 1; });
     await poll(async () => await rate() === 1.5);
     await videoPage.evaluate(() => { const old = document.querySelector('video'), next = old.cloneNode(); old.replaceWith(next); next.load(); });

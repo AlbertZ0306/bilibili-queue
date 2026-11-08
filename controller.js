@@ -112,6 +112,15 @@ export function createController(api, fetcher = fetch) {
     if (session.tabId == null) return;
     try { await api.tabs.sendMessage(session.tabId, { type, ...fields }, { frameId: 0 }); } catch { /* page may be closed or loading */ }
   }
+  async function setPlaybackRate(state, playbackRate) {
+    const { list, session } = state;
+    list.playbackRate = playbackRate;
+    list.rateRevision++;
+    await save(state);
+    if (session.running) {
+      await signal(session, 'BQ_RATE', { runId: session.runId, playbackRate, rateRevision: list.rateRevision });
+    }
+  }
   async function stop(state, note, pause = true, status = 'stopped') {
     const old = { ...state.session };
     state.session = { ...state.session, running: false, runId: null, documentId: null, status, note };
@@ -198,6 +207,13 @@ export function createController(api, fetcher = fetch) {
       await save(state);
       return { config: { runId: session.runId, itemId: item.id, bvid: item.bvid, page: item.page, playbackRate: list.playbackRate, rateRevision: list.rateRevision } };
     }
+    if (message?.type === 'BQ_RATE_STEP') {
+      if (!authorized(state, message, sender) || ![-1, 1].includes(message.step)) return { ignored: true };
+      const index = PLAYBACK_RATES.indexOf(list.playbackRate);
+      const rate = PLAYBACK_RATES[index + message.step];
+      if (rate !== undefined) await setPlaybackRate(state, rate);
+      return {};
+    }
     if (message?.type === 'BQ_PROGRESS') {
       if (!authorized(state, message, sender)) return { ignored: true };
       if (typeof message.currentTime !== 'number' || !Number.isFinite(message.currentTime) || message.currentTime < 0) return { ignored: true };
@@ -279,10 +295,7 @@ export function createController(api, fetcher = fetch) {
       case 'LOOP': list.loop = Boolean(message.value); await save(state); break;
       case 'RATE':
         if (!PLAYBACK_RATES.includes(message.value)) throw new Error('请选择 1、1.5、2 或 3 倍速');
-        list.playbackRate = message.value;
-        list.rateRevision++;
-        await save(state);
-        if (session.running) await signal(session, 'BQ_RATE', { runId: session.runId, playbackRate: list.playbackRate, rateRevision: list.rateRevision });
+        await setPlaybackRate(state, message.value);
         break;
       case 'DIRECTION':
         if (!['forward', 'reverse'].includes(message.value)) throw new Error('播放方向无效');

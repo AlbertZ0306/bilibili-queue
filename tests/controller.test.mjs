@@ -36,6 +36,24 @@ function harness() {
     restartWorker() { controller = createController(api); } };
 }
 
+test('rate steps are serialized, stop at the endpoints, and require the active playback document', async () => {
+  const h = harness();
+  await h.command('ADD', { text: BV1 });
+  await h.command('START');
+  await h.content('BQ_HELLO');
+  const step = (value, sender) => h.content('BQ_RATE_STEP', { step: value }, sender);
+  const getRate = async () => (await h.command('GET')).state.list.playbackRate;
+  await step(-1);
+  assert.equal(await getRate(), 1);
+  await Promise.all([step(1), step(1), step(1), step(1)]);
+  assert.equal(await getRate(), 3);
+  assert.equal((await step(-1, { ...h.contentSender(), documentId: 'stale' })).ignored, true);
+  assert.equal((await step(-2)).ignored, true);
+  assert.equal(await getRate(), 3);
+  await step(-1);
+  assert.equal(await getRate(), 2);
+});
+
 test('playback speed defaults to normal and persists through worker restart and clearing', async () => {
   const h = harness();
   assert.equal((await h.command('GET')).state.list.playbackRate, 1);

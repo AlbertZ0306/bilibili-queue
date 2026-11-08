@@ -211,6 +211,17 @@
       tick();
     } finally { syncing = false; }
   }
+  window.addEventListener('keydown', event => {
+    if (event.key !== '<' && event.key !== '>') return;
+    if (!event.isTrusted || event.defaultPrevented || event.isComposing || event.ctrlKey || event.altKey || event.metaKey) return;
+    if (!matching() || completed) return;
+    if (event.composedPath().some(target => target.isContentEditable || target.matches?.('input, textarea, select, [role="textbox"]'))) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (event.repeat) return;
+    void send({ type: 'BQ_RATE_STEP', runId: config.runId, url: location.href, step: event.key === '<' ? -1 : 1 });
+  }, true);
+
   chrome.runtime.onMessage.addListener(message => {
     if (message.type === 'BQ_RATE' && message.runId === config?.runId && matching()) acceptRate(message);
     if (message.type === 'BQ_STOP') deactivate(true);
