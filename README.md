@@ -1,4 +1,6 @@
-# bilibili-queue · v1.5.2
+# bilibili-queue · v1.6.0
+
+1.6.0 在 B 站视频标题后新增「加入播放列表」。点击即把当前 BV 和分 P 加到队列末尾，按钮原地反馈。同一 BV/P 已在列表时显示「已在播放列表」。仍可在扩展弹窗中粘贴链接或 BV 号批量添加，包括重复条目。
 
 1.5.2 修复信息接口 HTTP 412 导致标题、时长和封面缺失：接口失败时读取公开视频网页内嵌 JSON，校验 BV 后补全对应分 P。每次任务最多一次接口请求和一次网页回退，整体请求预算 10 秒，不读取 Cookie、不执行网页脚本、不循环重试。播放页读到的标题和时长也会同步修复列表中相同 BV/P 的重复条目。升级后点击扩展重新加载，再点击列表工具栏「刷新信息」即可修复原有失败条目。
 
@@ -30,6 +32,8 @@ Chrome Manifest V3 扩展：批量添加 BV 号或 B 站链接，按自定义顺
 设计参考、生成提示词和实现对照见 `design/README.md`；`design/reference.png` 是内置 imagegen 生成的示例，`design/implemented-popup.png` 是实际运行截图。预览使用公开视频示例，不会作为初始数据写入扩展。
 
 ## 使用
+
+在 B 站视频页点击标题后的「加入播放列表」，然后可在扩展弹窗查看新增条目。更新扩展后请刷新已经打开的 B 站视频页。
 
 点击右上角添加视频，在弹窗中粘贴，例如：
 
@@ -97,6 +101,7 @@ npx playwright install chromium
 node tests/browser-audit.cjs
 node tests/playback-rate.cjs
 node tests/metadata-fallback.cjs
+node tests/quick-add.cjs
 ```
 
 原生工具栏弹窗尺寸回归（会短暂打开独立测试浏览器窗口）：

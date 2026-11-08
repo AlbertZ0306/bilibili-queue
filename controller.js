@@ -169,6 +169,19 @@ export function createController(api, fetcher = fetch) {
   function trustedContent(sender) {
     return sender.tab && sender.frameId === 0 && sender.id === api.runtime.id;
   }
+  function appendVideo(list, video) {
+    if (list.items.length >= 1000) throw new Error('列表最多保存 1000 条');
+    const item = { id: crypto.randomUUID(), ...video, title: '', partTitle: '', duration: null, metadataStatus: 'loading', metadataError: '' };
+    list.items.push(item);
+    list.selectedId ??= item.id;
+    return item;
+  }
+  async function saveAddition(state, wasEmpty, added) {
+    if (wasEmpty && added && !state.session.running) {
+      state.session = { ...initialSession(), tabId: state.session.tabId, note: `已添加 ${added} 条视频，点击开始播放` };
+    }
+    await save(state);
+  }
   function authorized(state, message, sender) {
     const item = state.list.items.find(x => x.id === state.session.itemId);
     return trustedContent(sender) && state.session.running && sender.tab.id === state.session.tabId && item &&
@@ -219,7 +232,28 @@ export function createController(api, fetcher = fetch) {
       }
       return { state };
     }
-    // Queue-changing commands may only originate from an extension page.
+    if (message?.type === 'BQ_QUICK_ADD') {
+      if (!trustedContent(sender) || !sender.url?.startsWith('https://www.bilibili.com/')) {
+        throw new Error('请从 B 站视频页添加');
+      }
+      // The sender's document URL can retain the original P after a SPA navigation.
+      const tab = await api.tabs.get(sender.tab.id);
+      if (!tab.url?.startsWith('https://www.bilibili.com/')) throw new Error('视频页已切换，请重试');
+      const video = parseVideo(tab.url);
+      const clicked = parseVideo(message.url);
+      if (clicked.bvid !== video.bvid || clicked.page !== video.page) {
+        throw new Error('视频页已切换，请重试');
+      }
+      if (list.items.some(item => item.bvid === video.bvid && item.page === video.page)) {
+        return { duplicate: true };
+      }
+      const wasEmpty = list.items.length === 0;
+      const item = appendVideo(list, video);
+      await saveAddition(state, wasEmpty, 1);
+      scheduleMetadata([item]);
+      return { added: 1 };
+    }
+    // All other queue-changing commands must originate from an extension page.
     assertUI(sender);
     switch (message?.type) {
       case 'GET': break;
@@ -231,17 +265,11 @@ export function createController(api, fetcher = fetch) {
         for (const { token, parsed, error } of prepared) {
           try {
             if (error) throw new Error(error);
-            if (list.items.length >= 1000) throw new Error('列表最多保存 1000 条');
-            const item = { id: crypto.randomUUID(), ...parsed, title: '', partTitle: '', duration: null, metadataStatus: 'loading', metadataError: '' };
-            list.items.push(item);
-            list.selectedId ??= item.id;
+            appendVideo(list, parsed);
             added++;
           } catch (error) { errors.push(`${token}：${error.message}`); failedTokens.push(token); }
         }
-        if (wasEmpty && added && !state.session.running) {
-          state.session = { ...initialSession(), tabId: state.session.tabId, note: `已添加 ${added} 条视频，点击开始播放` };
-        }
-        await save(state);
+        await saveAddition(state, wasEmpty, added);
         return { state, added, errors, failedTokens };
       }
       case 'START': await start(state, message.id ?? (session.running ? session.itemId : playbackOrder(list)[0]?.id)); break;
