@@ -1,4 +1,5 @@
 const paths = {
+  copy: [['rect', { x: 8, y: 8, width: 12, height: 13, rx: 2 }], ['path', { d: 'M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3' }]],
   play: [['path', { d: 'm8 5 11 7-11 7Z' }]], restart: [['path', { d: 'M3 10a9 9 0 1 1 2.4 8.1M3 4v6h6' }]],
   prev: [['path', { d: 'M5 5v14m14-14L8 12l11 7Z' }]], next: [['path', { d: 'M19 5v14M5 5l11 7-11 7Z' }]],
   stop: [['rect', { x: 6, y: 6, width: 12, height: 12, rx: 2 }]], plus: [['path', { d: 'M12 5v14M5 12h14' }]],

@@ -22,4 +22,7 @@ html.manager{width:auto;min-width:0;max-width:none;height:auto;min-height:100%}
 .speed-control select{font-family:inherit;font-size:11px;font-weight:500;color:#555561;border:1px solid #dddde6;border-radius:6px;background:#fafafb;height:27px;min-width:57px;padding:3px 4px;cursor:pointer}
 .speed-control select:focus-visible{outline:2px solid var(--pink);outline-offset:2px}
 .speed-control select:disabled{opacity:.4;cursor:default}
+.heading-actions{display:flex;align-items:center;gap:10px;min-width:0}
+#copy-bvids{font-size:11px;padding:4px 6px}
+#copy-bvids .icon{width:15px;height:15px}
 @media(max-width:430px){.manager .queue-toolbar{gap:7px;padding-left:12px;padding-right:12px}.manager .speed-control>span{display:none}.manager .loop{gap:5px}.manager .toolbar-divider{display:none}}

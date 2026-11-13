@@ -23,6 +23,8 @@ function App() {
   const [state, setState] = useState(EMPTY);
   const [pending, setPending] = useState({ action: false, importing: false });
   const pendingRef = useRef({ action: false, importing: false });
+  const [copying, setCopying] = useState(false);
+  const copyingRef = useRef(false);
   const [draft, setDraft] = useState('');
   const draftRef = useRef('');
   const dialog = useRef(null), input = useRef(null), dialogVersion = useRef(0);
@@ -92,6 +94,21 @@ function App() {
     else if (sameDraft) setInput(response.failedTokens.join('\n'));
     notify(`${sameDraft ? '' : '上一批：'}已添加 ${response.added} 条视频${response.errors.length ? '\n' + response.errors.join('\n') : ''}`, Boolean(response.errors.length));
   }
+  async function copyBvids() {
+    if (copyingRef.current || !state.list.items.length) return;
+    const items = state.list.items;
+    copyingRef.current = true;
+    setCopying(true);
+    try {
+      await navigator.clipboard.writeText(items.map(item => item.bvid).join('\n'));
+      notify(`已复制 ${items.length} 个视频的 BV 号`);
+    } catch {
+      notify('复制失败，请重试并允许浏览器访问剪贴板', true);
+    } finally {
+      copyingRef.current = false;
+      setCopying(false);
+    }
+  }
   function endDrag() { drag.current = null; setDragged(null); setDrop(null); }
   function dragStart(event, id) {
     if (pending.action || event.target.closest('button')) { event.preventDefault(); return; }
@@ -140,7 +157,7 @@ function App() {
       <div className="header-actions"><Button id="expand" className="icon-button" name="expand" label="在独立标签页管理" onClick={() => void chrome.tabs.create({ url: chrome.runtime.getURL('popup.html') })}/><span className="header-divider"/><Button id="open-add" className="primary" name="plus" label="添加视频" onClick={openAdd}>添加视频</Button></div>
     </header>
     <section className="queue-panel" aria-label="视频播放列表">
-      <div className="queue-heading"><h2>播放列表 <span id="count">{list.items.length}</span></h2><div className="list-summary" aria-live="polite"><span id="duration-label">{summary.unknown ? '已知时长' : '总时长'}</span><strong id="total-duration">{summary.unknown && !summary.known ? '--:--' : formatDuration(summary.seconds)}</strong></div></div>
+      <div className="queue-heading"><h2>播放列表 <span id="count">{list.items.length}</span></h2><div className="heading-actions"><Button id="copy-bvids" name="copy" label="复制播放列表 BV 号" disabled={busy || copying || !list.items.length} onClick={() => void copyBvids()}>复制 BV</Button><div className="list-summary" aria-live="polite"><span id="duration-label">{summary.unknown ? '已知时长' : '总时长'}</span><strong id="total-duration">{summary.unknown && !summary.known ? '--:--' : formatDuration(summary.seconds)}</strong></div></div></div>
       <div className="queue-toolbar">
         <div className="segmented" role="group" aria-label="播放方向"><button id="order-forward" aria-pressed={!reverse} disabled={busy} onClick={() => void execute('DIRECTION', { value: 'forward' })}>顺序</button><button id="order-reverse" aria-pressed={reverse} disabled={busy} onClick={() => void execute('DIRECTION', { value: 'reverse' })}>逆序</button></div>
         <span className="toolbar-divider"/>

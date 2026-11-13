@@ -1,4 +1,6 @@
-# bilibili-queue · v1.6.2
+# bilibili-queue · v1.6.3
+
+1.6.3 新增列表标题栏「复制 BV」。按界面从上到下的顺序复制，每行一个 BV 号，保留重复条目。拖动排序后按新排列复制，逆序播放设置不影响复制顺序。复制结果仅包含 BV 号，重新添加时使用 P1，分 P、标题、进度和设置需要另外保存。
 
 1.6.2 支持在插件管理的 B 站播放页使用 `<` 降速一档、`>` 加速一档，按 1×、1.5×、2×、3× 切换。键盘上可用 Shift + 逗号和 Shift + 句号。倍速会保存并沿用到下一条，评论、弹幕等输入区域仍可输入这两个符号。
 
@@ -106,6 +108,7 @@ node tests/browser-audit.cjs
 node tests/playback-rate.cjs
 node tests/metadata-fallback.cjs
 node tests/quick-add.cjs
+node tests/playlist-copy.cjs
 ```
 
 原生工具栏弹窗尺寸回归（会短暂打开独立测试浏览器窗口）：
