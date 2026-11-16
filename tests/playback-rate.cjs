@@ -55,8 +55,8 @@ async function poll(fn) {
     console.log('PASS: 1x/1.5x/2x/3x apply immediately without resuming, seeking or navigating');
     for (const [key, expected] of [
       ['Shift+Period', 2], ['Shift+Period', 3],
-      ['Shift+Comma', 2], ['Shift+Comma', 1.5], ['Shift+Comma', 1],
-      ['Shift+Period', 1.5]
+      ['Shift+Comma', 2], ['Shift+Comma', 1.5], ['Shift+Comma', 1.25],
+      ['Shift+Comma', 1], ['Shift+Period', 1.25], ['Shift+Period', 1.5]
     ]) {
       await videoPage.keyboard.press(key);
       await poll(async () => await rate() === expected);

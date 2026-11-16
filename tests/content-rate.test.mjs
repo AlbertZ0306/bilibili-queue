@@ -34,12 +34,12 @@ test('new speed wins over delayed HELLO, storage initialization and stale tab me
   assert.equal(h.video.currentTime, 27); assert(h.video.paused);
 });
 
-test('speed preference never modifies an unmanaged video or applies an old run message', async () => {
+test('speed preference ignores old run messages and does not apply outside video pages', async () => {
   const h = playerHarness(); h.hello(config); h.stored({ playbackRate: 2, rateRevision: 1 }); await flush();
   assert.equal(h.video.playbackRate, 2);
   h.message({ type: 'BQ_RATE', runId: 'old-run', playbackRate: 3, rateRevision: 5 });
   assert.equal(h.video.playbackRate, 2);
-  h.location.href = 'https://www.bilibili.com/video/BV1Q541167Qg/';
+  h.location.href = 'https://www.bilibili.com/';
   h.changed({ playbackRate: 3, rateRevision: 2 });
   assert.equal(h.video.playbackRate, 2);
 });

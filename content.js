@@ -14,22 +14,84 @@
   let startedAt = Date.now();
   let notice;
   let noticeTimer;
+  const playbackRates = [0.5, 0.75, 1, 1.25, 1.5, 2, 3];
+  const rateItemSelector = '.bpx-player-ctrl-playbackrate-menu-item';
+  let speedMedia = null;
+  let pendingSpeed = null;
+  let applyingRate = false;
   // Revisions prevent a delayed HELLO/storage read from undoing a newer selection.
   let ratePreference = { playbackRate: 1, rateRevision: -1 };
 
   function acceptRate(value) {
-    if (!value || ![1, 1.5, 2, 3].includes(value.playbackRate)) return;
+    if (!value || !playbackRates.includes(value.playbackRate)) return;
     const revision = Number.isSafeInteger(value.rateRevision) && value.rateRevision >= 0 ? value.rateRevision : 0;
     if (revision < ratePreference.rateRevision) return;
     ratePreference = { playbackRate: value.playbackRate, rateRevision: revision };
     applyRate();
   }
   function applyRate() {
-    if (!media || !matching() || completed) return;
-    const rate = ratePreference.playbackRate;
-    // Neither play() nor seeking is needed; a paused video stays paused.
-    if (media.defaultPlaybackRate !== rate) media.defaultPlaybackRate = rate;
-    if (media.playbackRate !== rate) media.playbackRate = rate;
+    if (!speedMedia || !videoPage() || applyingRate || ratePreference.rateRevision < 0) return;
+    const rate = pendingSpeed?.rate ?? ratePreference.playbackRate;
+    applyingRate = true;
+    try {
+      const menu = document.querySelector('.bpx-player-ctrl-playbackrate-menu');
+      if (menu && !menu.closest('[data-server-rendered]')) {
+        const items = [...menu.querySelectorAll(rateItemSelector)];
+        const selected = items.find(item => Number(item.dataset.value) === rate);
+        // Use the native delegated handler so Bilibili also updates its player settings.
+        if (selected && (!selected.classList.contains('bpx-state-active') || speedMedia.playbackRate !== rate)) selected.click();
+        for (const item of items) item.classList.toggle('bpx-state-active', Number(item.dataset.value) === rate);
+        const result = menu.parentElement.querySelector('.bpx-player-ctrl-playbackrate-result');
+        if (result) {
+          const text = rate === 1 ? '倍速' : `${Number.isInteger(rate) ? rate.toFixed(1) : rate}x`;
+          if (result.textContent !== text) result.textContent = text;
+        }
+      }
+      if (speedMedia.defaultPlaybackRate !== rate) speedMedia.defaultPlaybackRate = rate;
+      if (speedMedia.playbackRate !== rate) speedMedia.playbackRate = rate;
+    } finally { applyingRate = false; }
+  }
+  function videoPage() {
+    const url = new URL(location.href);
+    return url.origin === 'https://www.bilibili.com' && /^\/video\/BV[a-zA-Z0-9]{10}\/?$/.test(url.pathname);
+  }
+  function syncPlayerSpeed() {
+    if (pendingSpeed && pendingSpeed.url !== location.href) pendingSpeed = null;
+    const found = videoPage() ? findMedia() : null;
+    if (found !== speedMedia) {
+      speedMedia?.removeEventListener('loadedmetadata', applyRate);
+      speedMedia?.removeEventListener('ratechange', applyRate);
+      speedMedia = found;
+      speedMedia?.addEventListener('loadedmetadata', applyRate);
+      speedMedia?.addEventListener('ratechange', applyRate);
+    }
+    const menu = document.querySelector('.bpx-player-ctrl-playbackrate-menu');
+    if (speedMedia && menu && !menu.closest('[data-server-rendered]') && !menu.querySelector('[data-value="3"]')) {
+      const template = menu.querySelector(rateItemSelector);
+      if (template) {
+        const item = template.cloneNode(false);
+        item.classList.remove('bpx-state-active');
+        item.dataset.value = '3';
+        item.dataset.bqRate = '3';
+        item.textContent = '3.0x';
+        item.setAttribute('title', '3 倍速 · bilibili-queue');
+        menu.prepend(item);
+      }
+    }
+    applyRate();
+  }
+  async function changePlayerSpeed(fields) {
+    const attempt = { url: location.href, rate: fields.value };
+    pendingSpeed = attempt;
+    const result = await send({ type: fields.step ? 'BQ_PLAYER_RATE_STEP' : 'BQ_PLAYER_RATE', url: attempt.url, ...fields });
+    if (pendingSpeed !== attempt) return;
+    pendingSpeed = null;
+    if (location.href !== attempt.url) return;
+    if (result?.ok) acceptRate(result);
+    else {
+      applyRate();
+      showNotice(result?.error || '倍速同步失败，请刷新视频页后重试', null, true);
+    }
   }
 
   function matching() {
@@ -159,6 +221,7 @@
   window.addEventListener('ended', finish, true);
 
   function tick() {
+    syncPlayerSpeed();
     if (location.href !== lastURL) { void sync(); return; }
     if (!matching()) return;
     const found = findMedia();
@@ -202,6 +265,7 @@
       if (url !== lastURL) { deactivate(); lastURL = url; }
       const result = await send({ type: 'BQ_HELLO', url });
       if (url !== location.href) { lastURL = ''; return; }
+      syncPlayerSpeed();
       const next = result?.ok ? result.config : null;
       if (!next) { deactivate(); return; }
       if (next.runId !== config?.runId) {
@@ -214,12 +278,19 @@
   window.addEventListener('keydown', event => {
     if (event.key !== '<' && event.key !== '>') return;
     if (!event.isTrusted || event.defaultPrevented || event.isComposing || event.ctrlKey || event.altKey || event.metaKey) return;
-    if (!matching() || completed) return;
+    if (!videoPage() || !speedMedia) return;
     if (event.composedPath().some(target => target.isContentEditable || target.matches?.('input, textarea, select, [role="textbox"]'))) return;
     event.preventDefault();
     event.stopImmediatePropagation();
     if (event.repeat) return;
-    void send({ type: 'BQ_RATE_STEP', runId: config.runId, url: location.href, step: event.key === '<' ? -1 : 1 });
+    void changePlayerSpeed({ step: event.key === '<' ? -1 : 1 });
+  }, true);
+  window.addEventListener('click', event => {
+    if (!event.isTrusted || !videoPage()) return;
+    const item = event.target.closest?.(rateItemSelector);
+    if (!item || !item.closest('.bpx-player-ctrl-playbackrate-menu')) return;
+    const rate = Number(item.dataset.value);
+    if (playbackRates.includes(rate)) void changePlayerSpeed({ value: rate });
   }, true);
 
   chrome.runtime.onMessage.addListener(message => {
@@ -235,6 +306,9 @@
   });
   // Handles SPA navigation and replacement of the HTML5 player. Never resumes a user pause.
   setInterval(tick, 750);
-  void chrome.storage.local.get('playlist').then(result => acceptRate(result.playlist)).catch(() => {});
+  void chrome.storage.local.get('playlist').then(result => {
+    acceptRate({ playbackRate: 1, rateRevision: 0, ...result.playlist });
+    syncPlayerSpeed();
+  }).catch(() => {});
   void sync();
 })();

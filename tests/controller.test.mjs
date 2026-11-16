@@ -43,9 +43,10 @@ test('rate steps are serialized, stop at the endpoints, and require the active p
   await h.content('BQ_HELLO');
   const step = (value, sender) => h.content('BQ_RATE_STEP', { step: value }, sender);
   const getRate = async () => (await h.command('GET')).state.list.playbackRate;
+  await h.command('RATE', { value: 0.5 });
   await step(-1);
-  assert.equal(await getRate(), 1);
-  await Promise.all([step(1), step(1), step(1), step(1)]);
+  assert.equal(await getRate(), 0.5);
+  await Promise.all(Array.from({ length: 8 }, () => step(1)));
   assert.equal(await getRate(), 3);
   assert.equal((await step(-1, { ...h.contentSender(), documentId: 'stale' })).ignored, true);
   assert.equal((await step(-2)).ignored, true);
@@ -89,10 +90,26 @@ test('all supported speeds reach the active player without navigating or resetti
 
 test('invalid speed and content-page attempts cannot change the saved preference', async () => {
   const h = harness();
-  for (const value of [0, -1, 1.25, 4, Infinity, NaN, '2', null]) await assert.rejects(h.command('RATE', { value }));
+  for (const value of [0, -1, 1.1, 4, Infinity, NaN, '2', null]) await assert.rejects(h.command('RATE', { value }));
   await assert.rejects(createController(h.api).handle({ type: 'RATE', value: 3 }, { id: 'test', url: 'https://www.bilibili.com/', tab: { id: 1 }, frameId: 0 }));
   assert.equal((await h.command('GET')).state.list.playbackRate, 1);
   assert.equal(h.signals.length, 0);
+});
+
+test('player menu can save a speed before queue playback and rejects stale pages and subframes', async () => {
+  const h = harness();
+  const url = `https://www.bilibili.com/video/${BV1}/?p=2`;
+  h.tabs.set(77, { id: 77, url });
+  const sender = { id: 'test', tab: { id: 77 }, frameId: 0, url: `https://www.bilibili.com/video/${BV1}/` };
+  const request = (type, fields = {}, from = sender) => createController(h.api).handle({ type, url, ...fields }, from);
+  const saved = await request('BQ_PLAYER_RATE', { value: 1.25 });
+  assert.equal(saved.playbackRate, 1.25);
+  assert(!(await h.command('GET')).state.session.running);
+  const next = await request('BQ_PLAYER_RATE_STEP', { step: 1 });
+  assert.equal(next.playbackRate, 1.5);
+  await assert.rejects(request('BQ_PLAYER_RATE', { value: 3, url: `https://www.bilibili.com/video/${BV2}/` }));
+  await assert.rejects(request('BQ_PLAYER_RATE', { value: 3 }, { ...sender, frameId: 1 }));
+  assert.equal((await h.command('GET')).state.list.playbackRate, 1.5);
 });
 
 test('legacy playlists gain a default speed and corrupt preferences are normalized', async () => {

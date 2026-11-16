@@ -2,7 +2,7 @@ import { parseVideo, splitInput, videoURL, matchesRun } from './parser.js';
 import { fetchVideoMetadata, metadataForPage, validDuration } from './metadata.js';
 import { playbackOrder } from './playback.js';
 
-const PLAYBACK_RATES = [1, 1.5, 2, 3];
+const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2, 3];
 const initialList = () => ({ items: [], selectedId: null, loop: false, direction: 'forward', playbackRate: 1, rateRevision: 0, generation: 'initial' });
 const initialSession = () => ({ running: false, tabId: null, runId: null, itemId: null, documentId: null, status: 'ready', note: '', currentTime: 0, mediaDuration: null, progressUpdatedAt: null });
 
@@ -214,6 +214,23 @@ export function createController(api, fetcher = fetch) {
       if (rate !== undefined) await setPlaybackRate(state, rate);
       return {};
     }
+    if (message?.type === 'BQ_PLAYER_RATE' || message?.type === 'BQ_PLAYER_RATE_STEP') {
+      if (!trustedContent(sender) || !sender.url?.startsWith('https://www.bilibili.com/')) throw new Error('请从 B 站视频页调整倍速');
+      const tab = await api.tabs.get(sender.tab.id);
+      const current = parseVideo(tab.url);
+      const clicked = parseVideo(message.url);
+      if (!tab.url.startsWith('https://www.bilibili.com/') || current.bvid !== clicked.bvid || current.page !== clicked.page) {
+        throw new Error('视频页已切换，请重试');
+      }
+      let rate = message.value;
+      if (message.type === 'BQ_PLAYER_RATE_STEP') {
+        if (![-1, 1].includes(message.step)) throw new Error('倍速方向无效');
+        rate = PLAYBACK_RATES[PLAYBACK_RATES.indexOf(list.playbackRate) + message.step] ?? list.playbackRate;
+      }
+      if (!PLAYBACK_RATES.includes(rate)) throw new Error('播放速度无效');
+      if (rate !== list.playbackRate) await setPlaybackRate(state, rate);
+      return { playbackRate: list.playbackRate, rateRevision: list.rateRevision };
+    }
     if (message?.type === 'BQ_PROGRESS') {
       if (!authorized(state, message, sender)) return { ignored: true };
       if (typeof message.currentTime !== 'number' || !Number.isFinite(message.currentTime) || message.currentTime < 0) return { ignored: true };
@@ -294,7 +311,7 @@ export function createController(api, fetcher = fetch) {
       case 'PREV': await step(state, -1); break;
       case 'LOOP': list.loop = Boolean(message.value); await save(state); break;
       case 'RATE':
-        if (!PLAYBACK_RATES.includes(message.value)) throw new Error('请选择 1、1.5、2 或 3 倍速');
+        if (!PLAYBACK_RATES.includes(message.value)) throw new Error('请选择支持的播放速度');
         await setPlaybackRate(state, message.value);
         break;
       case 'DIRECTION':
