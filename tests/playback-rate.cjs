@@ -71,12 +71,13 @@ async function poll(fn) {
     assert(paused);
     console.log('PASS: < and > step the saved speed while paused and preserve typing in comments');
     await videoPage.evaluate(() => { document.querySelector('video').playbackRate = 1; });
-    await poll(async () => await rate() === 1.5);
+    await videoPage.waitForTimeout(950);
+    assert.equal(await rate(), 1, 'Do not overwrite a player-originated speed change on every tick');
     await videoPage.evaluate(() => { const old = document.querySelector('video'), next = old.cloneNode(); old.replaceWith(next); next.load(); });
     await videoPage.waitForFunction(() => document.querySelector('video').readyState >= 2);
     await poll(async () => await rate() === 1.5);
     assert(await videoPage.evaluate(() => document.querySelector('video').paused));
-    console.log('PASS: player speed reset and paused player-node replacement preserve preference');
+    console.log('PASS: player changes are not continuously overwritten; paused player-node replacement inherits preference');
     await page.locator('#playback-rate').selectOption('3');
     await poll(async () => await rate() === 3);
     await videoPage.evaluate(async () => { const v = document.querySelector('video'); v.currentTime = v.duration - .3; await v.play(); });

@@ -19,6 +19,11 @@
   let speedMedia = null;
   let pendingSpeed = null;
   let applyingRate = false;
+  let speedURL = '';
+  let speedMenu = null;
+  let rateDirty = false;
+  let rightHeld = false;
+  let rateReleaseTimer = null;
   // Revisions prevent a delayed HELLO/storage read from undoing a newer selection.
   let ratePreference = { playbackRate: 1, rateRevision: -1 };
 
@@ -26,16 +31,25 @@
     if (!value || !playbackRates.includes(value.playbackRate)) return;
     const revision = Number.isSafeInteger(value.rateRevision) && value.rateRevision >= 0 ? value.rateRevision : 0;
     if (revision < ratePreference.rateRevision) return;
+    if (revision === ratePreference.rateRevision && value.playbackRate === ratePreference.playbackRate) return;
     ratePreference = { playbackRate: value.playbackRate, rateRevision: revision };
+    rateDirty = true;
     applyRate();
   }
+  function nativeRateHintVisible() {
+    const hint = document.querySelector('.bpx-player-three-playrate-hint');
+    return Boolean(hint?.getClientRects().length && getComputedStyle(hint).visibility !== 'hidden');
+  }
   function applyRate() {
-    if (!speedMedia || !videoPage() || applyingRate || ratePreference.rateRevision < 0) return;
+    if (!rateDirty || !speedMedia || !videoPage() || speedURL !== location.href || applyingRate || ratePreference.rateRevision < 0) return;
+    // Native long-press speed belongs to the player, not the saved preference.
+    if (rightHeld || rateReleaseTimer !== null || nativeRateHintVisible()) return;
     const rate = pendingSpeed?.rate ?? ratePreference.playbackRate;
     applyingRate = true;
     try {
       const menu = document.querySelector('.bpx-player-ctrl-playbackrate-menu');
-      if (menu && !menu.closest('[data-server-rendered]')) {
+      if (menu?.closest('[data-server-rendered]')) return;
+      if (menu) {
         const items = [...menu.querySelectorAll(rateItemSelector)];
         const selected = items.find(item => Number(item.dataset.value) === rate);
         // Use the native delegated handler so Bilibili also updates its player settings.
@@ -49,23 +63,46 @@
       }
       if (speedMedia.defaultPlaybackRate !== rate) speedMedia.defaultPlaybackRate = rate;
       if (speedMedia.playbackRate !== rate) speedMedia.playbackRate = rate;
+      rateDirty = false;
     } finally { applyingRate = false; }
+  }
+  function onSpeedMetadata() { rateDirty = true; applyRate(); }
+  function releaseNativeRate() {
+    if (!rightHeld) return;
+    rightHeld = false;
+    clearTimeout(rateReleaseTimer);
+    const url = location.href;
+    // Our capture listener runs before Bilibili's keyup/blur handler restores speed.
+    rateReleaseTimer = setTimeout(() => {
+      rateReleaseTimer = null;
+      if (location.href !== url) return;
+      rateDirty = true;
+      applyRate();
+    }, 0);
   }
   function videoPage() {
     const url = new URL(location.href);
     return url.origin === 'https://www.bilibili.com' && /^\/video\/BV[a-zA-Z0-9]{10}\/?$/.test(url.pathname);
   }
   function syncPlayerSpeed() {
-    if (pendingSpeed && pendingSpeed.url !== location.href) pendingSpeed = null;
+    if (speedURL !== location.href) {
+      speedURL = location.href;
+      pendingSpeed = null;
+      rightHeld = false;
+      clearTimeout(rateReleaseTimer);
+      rateReleaseTimer = null;
+      speedMenu = null;
+      rateDirty = true;
+    }
     const found = videoPage() ? findMedia() : null;
     if (found !== speedMedia) {
-      speedMedia?.removeEventListener('loadedmetadata', applyRate);
-      speedMedia?.removeEventListener('ratechange', applyRate);
+      speedMedia?.removeEventListener('loadedmetadata', onSpeedMetadata);
       speedMedia = found;
-      speedMedia?.addEventListener('loadedmetadata', applyRate);
-      speedMedia?.addEventListener('ratechange', applyRate);
+      speedMedia?.addEventListener('loadedmetadata', onSpeedMetadata);
+      rateDirty = true;
     }
     const menu = document.querySelector('.bpx-player-ctrl-playbackrate-menu');
+    if (menu !== speedMenu) { speedMenu = menu; rateDirty = true; }
     if (speedMedia && menu && !menu.closest('[data-server-rendered]') && !menu.querySelector('[data-value="3"]')) {
       const template = menu.querySelector(rateItemSelector);
       if (template) {
@@ -76,6 +113,7 @@
         item.textContent = '3.0x';
         item.setAttribute('title', '3 倍速 · bilibili-queue');
         menu.prepend(item);
+        rateDirty = true;
       }
     }
     applyRate();
@@ -89,6 +127,7 @@
     if (location.href !== attempt.url) return;
     if (result?.ok) acceptRate(result);
     else {
+      rateDirty = true;
       applyRate();
       showNotice(result?.error || '倍速同步失败，请刷新视频页后重试', null, true);
     }
@@ -187,7 +226,6 @@
       media.removeEventListener('waiting', onWaiting);
       media.removeEventListener('stalled', onWaiting);
       media.removeEventListener('error', onError);
-      media.removeEventListener('loadedmetadata', applyRate);
       if (pause) media.pause();
     }
     media = null;
@@ -198,7 +236,7 @@
     detach(pause);
     hideNotice();
   }
-  function onPlaying() { if (matching()) { applyRate(); attempted = true; userPaused = false; hideNotice(); report('playing'); reportProgress(true); } }
+  function onPlaying() { if (matching()) { attempted = true; userPaused = false; hideNotice(); report('playing'); reportProgress(true); } }
   function onPause() { if (matching() && !media?.ended) { userPaused = true; report('paused'); reportProgress(true); } }
   function onWaiting() { if (matching() && !userPaused && !media?.ended) report('buffering'); }
   function onError() {
@@ -237,7 +275,6 @@
         media.addEventListener('waiting', onWaiting);
         media.addEventListener('stalled', onWaiting);
         media.addEventListener('error', onError);
-        media.addEventListener('loadedmetadata', applyRate);
       }
     }
     if (!media) {
@@ -245,7 +282,6 @@
       return;
     }
     media.loop = false;
-    applyRate();
     if (media.error) { if (status !== 'error') onError(); return; }
     if (media.ended) { finish(); return; }
     if (userPaused && status !== 'paused') report('paused');
@@ -276,15 +312,29 @@
     } finally { syncing = false; }
   }
   window.addEventListener('keydown', event => {
-    if (event.key !== '<' && event.key !== '>') return;
+    const right = event.key === 'ArrowRight' || event.keyCode === 102;
+    if (!right && event.key !== '<' && event.key !== '>') return;
     if (!event.isTrusted || event.defaultPrevented || event.isComposing || event.ctrlKey || event.altKey || event.metaKey) return;
     if (!videoPage() || !speedMedia) return;
     if (event.composedPath().some(target => target.isContentEditable || target.matches?.('input, textarea, select, [role="textbox"]'))) return;
+    if (right) {
+      if (event.shiftKey) return;
+      rightHeld = true;
+      clearTimeout(rateReleaseTimer);
+      rateReleaseTimer = null;
+      return; // Preserve native seek, long-press threshold, and temporary speed.
+    }
     event.preventDefault();
     event.stopImmediatePropagation();
     if (event.repeat) return;
     void changePlayerSpeed({ step: event.key === '<' ? -1 : 1 });
   }, true);
+  window.addEventListener('keyup', event => {
+    if (event.key === 'ArrowRight' || event.keyCode === 102) releaseNativeRate();
+  }, true);
+  window.addEventListener('blur', releaseNativeRate);
+  window.addEventListener('contextmenu', releaseNativeRate, true);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) releaseNativeRate(); });
   window.addEventListener('click', event => {
     if (!event.isTrusted || !videoPage()) return;
     const item = event.target.closest?.(rateItemSelector);
@@ -293,7 +343,15 @@
     if (playbackRates.includes(rate)) void changePlayerSpeed({ value: rate });
   }, true);
 
-  chrome.runtime.onMessage.addListener(message => {
+  chrome.runtime.onMessage.addListener((message, sender, respond) => {
+    if (message.type === 'BQ_GET_SPEED') {
+      respond(videoPage() && speedURL === location.href && speedMedia ? {
+        url: location.href, playbackRate: speedMedia.playbackRate,
+        fixedRate: ratePreference.playbackRate,
+        temporary: nativeRateHintVisible() || rightHeld && speedMedia.playbackRate !== ratePreference.playbackRate
+      } : null);
+      return;
+    }
     if (message.type === 'BQ_RATE' && message.runId === config?.runId && matching()) acceptRate(message);
     if (message.type === 'BQ_STOP') deactivate(true);
     if (message.type === 'BQ_FINISH') { deactivate(); showNotice('队列播放已结束', null, true); }

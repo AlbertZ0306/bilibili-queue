@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "bilibili-queue",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "description": "从 B 站视频页一键添加或粘贴链接，支持顺序/逆序、拖动排序、播放器与插件同步的 0.5～3 倍速、实时进度、分 P 和循环。",
   "minimum_chrome_version": "112",
   "permissions": [

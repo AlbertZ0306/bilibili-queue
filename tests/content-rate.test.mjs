@@ -10,7 +10,7 @@ function playerHarness() {
   const location = { href: 'https://www.bilibili.com/video/BV1xx411c7mD/?bq_run=run' };
   vm.runInNewContext(code, {
     URL, Date, console, location,
-    document: { querySelectorAll: () => [video], querySelector: () => null, title: '测试' },
+    document: { querySelectorAll: () => [video], querySelector: () => null, title: '测试', addEventListener() {} },
     window: { addEventListener() {} },
     setInterval: fn => { tick = fn; }, setTimeout, clearTimeout,
     chrome: {
@@ -42,4 +42,17 @@ test('speed preference ignores old run messages and does not apply outside video
   h.location.href = 'https://www.bilibili.com/';
   h.changed({ playbackRate: 3, rateRevision: 2 });
   assert.equal(h.video.playbackRate, 2);
+});
+
+test('player-originated temporary speed survives ticks and unrelated playlist saves', async () => {
+  const h = playerHarness(); h.hello(config); h.stored({ playbackRate: 1.5, rateRevision: 1 }); await flush();
+  h.video.playbackRate = 3; h.video.defaultPlaybackRate = 3;
+  h.tick();
+  h.changed({ playbackRate: 1.5, rateRevision: 1, items: [] });
+  h.message({ type: 'BQ_RATE', runId: 'run', playbackRate: 1.5, rateRevision: 1 });
+  h.tick();
+  assert.equal(h.video.playbackRate, 3);
+  assert.equal(h.video.defaultPlaybackRate, 3);
+  h.changed({ playbackRate: 2, rateRevision: 2 });
+  assert.equal(h.video.playbackRate, 2, 'A new explicit preference still applies');
 });

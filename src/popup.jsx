@@ -21,6 +21,7 @@ function Cover({ url }) {
 
 function App() {
   const [state, setState] = useState(EMPTY);
+  const [playerSpeed, setPlayerSpeed] = useState(null);
   const [pending, setPending] = useState({ action: false, importing: false });
   const pendingRef = useRef({ action: false, importing: false });
   const [copying, setCopying] = useState(false);
@@ -58,6 +59,21 @@ function App() {
     catch (error) { notify(error.message, true); }
     finally { pendingRef.current = { ...pendingRef.current, [key]: false }; setPending(pendingRef.current); }
   }, [request, notify]);
+  useEffect(() => {
+    let cancelled = false, timer;
+    async function refreshSpeed() {
+      let speed = null;
+      try {
+        const [active] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+        const tabId = active?.url?.startsWith('https://www.bilibili.com/video/') ? active.id :
+          state.session.running ? state.session.tabId : null;
+        if (tabId != null) speed = await chrome.tabs.sendMessage(tabId, { type: 'BQ_GET_SPEED' });
+      } catch {} // A navigating or reloaded video page may not have a content script yet.
+      if (!cancelled) { setPlayerSpeed(speed); timer = setTimeout(refreshSpeed, 350); }
+    }
+    void refreshSpeed();
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [state.session.running, state.session.tabId]);
 
   useEffect(() => {
     let refresh;
@@ -165,6 +181,7 @@ function App() {
         <label className="speed-control" htmlFor="playback-rate"><span>倍速</span><select id="playback-rate" aria-label="播放速度" title="与 B 站播放器倍速菜单同步，下一条视频沿用此速度" value={list.playbackRate ?? 1} disabled={busy} onChange={event => void execute('RATE', { value: Number(event.target.value) })}>{[0.5, 0.75, 1, 1.25, 1.5, 2, 3].map(rate => <option key={rate} value={rate}>{rate}×</option>)}</select></label>
         <div className="toolbar-end"><Button id="refresh" className="icon-button" name="refresh" label="刷新信息" disabled={busy || !list.items.length} onClick={() => void execute('REFRESH_METADATA')}/><Button id="clear" className="icon-button danger" name="trash" label="清空" disabled={busy || !list.items.length} onClick={() => { if (confirm('清空整个播放列表？正在播放的视频也会暂停。')) void execute('CLEAR'); }}/></div>
       </div>
+      <div id="speed-status" className="speed-status" role="status" hidden={!playerSpeed?.temporary}>临时 {playerSpeed?.playbackRate}× · 固定 {list.playbackRate ?? 1}×，松开恢复</div>
       <div id="duration-status" className="duration-status" role="status" hidden={!summary.unknown && !loading}>{summary.unknown ? `另 ${summary.unknown} 条时长待获取${loading ? ' · 获取中' : ' · 可点击刷新重试'}` : '正在更新视频信息…'}</div>
       <p id="order-hint" className="sr-only">{reverse ? '从下往上播放' : '从上往下播放'}，拖动六点手柄调整顺序。</p>
       <ol id="list" ref={listRef} hidden={!list.items.length} aria-label="按播放顺序排列的视频" onWheel={() => setMenu(null)} onDragOver={dragOver} onDrop={dropped} onDragEnd={endDrag}>
