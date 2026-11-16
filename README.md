@@ -115,7 +115,19 @@ node tests/metadata-fallback.cjs
 node tests/quick-add.cjs
 node tests/playlist-copy.cjs
 node tests/player-speed-menu.cjs
+node tests/native-speed-hold.cjs
+node tests/volume-preservation.cjs
 ```
+
+需要联网的真实 B 站专项测试（使用独立访客配置）：
+
+```sh
+node tests/live-speed-hold.cjs
+node tests/live-volume.cjs --baseline
+node tests/live-volume.cjs
+```
+
+音量测试同时检查播放器音量、静音和 Chrome 标签页静音，并记录页面启动时的音量变化。禁用扩展的对照与加载扩展的测试分别运行；物理音频输出保持安静。详细范围和结果见 `TEST_REPORT.md`。
 
 原生工具栏弹窗尺寸回归（会短暂打开独立测试浏览器窗口）：
 
