@@ -90,9 +90,12 @@ async function main() {
     await command('RATE', { value: 1.5 }); await waitRate(page, 1.5);
     await hold(page); await command('RATE', { value: 2 }); await page.waitForTimeout(900);
     assert.equal(await rate(page), 3); await release(page, 2);
-    await hold(page); await page.keyboard.press('Shift+Comma'); await page.waitForTimeout(450);
+    await hold(page); await page.keyboard.press('Shift+Comma');
+    await page.waitForFunction(() => document.getElementById('bq-speed-feedback')?.getAttribute('aria-label') === '固定倍速 1.5×，松开后生效');
+    await page.waitForTimeout(450);
     assert.equal(await rate(page), 3); assert.equal((await command('GET')).state.list.playbackRate, 1.5);
     await release(page, 1.5);
+    assert.equal(await page.locator('#bq-speed-feedback').getAttribute('aria-label'), '播放速度 1.5×');
     // Headless tabs do not consistently emit OS focus events; exercise the actual
     // player's registered blur cleanup explicitly rather than assuming tab focus.
     await hold(page); await page.evaluate(() => window.dispatchEvent(new Event('blur')));

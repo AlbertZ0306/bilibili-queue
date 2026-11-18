@@ -1,4 +1,6 @@
-# bilibili-queue · v1.7.1
+# bilibili-queue · v1.7.2
+
+1.7.2 新增键盘倍速轻提示：按 `<` / `>`（Shift + 逗号 / 句号）成功切换后，在视频画面左上角用 13px 小字显示当前倍速，约 1.5 秒淡出。连续操作更新同一条提示，到达上限 / 下限会说明；长按临时加速期间改速显示「固定倍速，松开后生效」，松键应用后确认实际倍速。提示随播放器进入全屏，不遮挡鼠标操作。更新扩展后请刷新视频页。
 
 1.7.1 修复固定倍速同步覆盖 B 站长按右方向键临时加速的问题。长按时由 B 站控制临时速度，松开后恢复固定倍速；长按期间在插件修改的设置会在松开后生效。插件显示「临时 3× · 固定 1.5×」，临时加速不会写入保存的倍速。保留短按右方向键快进、原生 3.0x 菜单和 `<`／`>` 的同步。更新扩展后请刷新视频页。
 
@@ -116,6 +118,7 @@ node tests/quick-add.cjs
 node tests/playlist-copy.cjs
 node tests/player-speed-menu.cjs
 node tests/native-speed-hold.cjs
+node tests/speed-feedback.cjs
 node tests/volume-preservation.cjs
 ```
 

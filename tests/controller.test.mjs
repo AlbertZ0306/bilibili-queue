@@ -107,9 +107,14 @@ test('player menu can save a speed before queue playback and rejects stale pages
   assert(!(await h.command('GET')).state.session.running);
   const next = await request('BQ_PLAYER_RATE_STEP', { step: 1 });
   assert.equal(next.playbackRate, 1.5);
+  assert.equal(next.atLimit, false);
   await assert.rejects(request('BQ_PLAYER_RATE', { value: 3, url: `https://www.bilibili.com/video/${BV2}/` }));
   await assert.rejects(request('BQ_PLAYER_RATE', { value: 3 }, { ...sender, frameId: 1 }));
   assert.equal((await h.command('GET')).state.list.playbackRate, 1.5);
+  await request('BQ_PLAYER_RATE', { value: 3 });
+  assert.equal((await request('BQ_PLAYER_RATE_STEP', { step: 1 })).atLimit, true);
+  await request('BQ_PLAYER_RATE', { value: .5 });
+  assert.equal((await request('BQ_PLAYER_RATE_STEP', { step: -1 })).atLimit, true);
 });
 
 test('legacy playlists gain a default speed and corrupt preferences are normalized', async () => {

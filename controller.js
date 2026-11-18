@@ -228,8 +228,9 @@ export function createController(api, fetcher = fetch) {
         rate = PLAYBACK_RATES[PLAYBACK_RATES.indexOf(list.playbackRate) + message.step] ?? list.playbackRate;
       }
       if (!PLAYBACK_RATES.includes(rate)) throw new Error('播放速度无效');
+      const atLimit = message.type === 'BQ_PLAYER_RATE_STEP' && rate === list.playbackRate;
       if (rate !== list.playbackRate) await setPlaybackRate(state, rate);
-      return { playbackRate: list.playbackRate, rateRevision: list.rateRevision };
+      return { playbackRate: list.playbackRate, rateRevision: list.rateRevision, atLimit };
     }
     if (message?.type === 'BQ_PROGRESS') {
       if (!authorized(state, message, sender)) return { ignored: true };

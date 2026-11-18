@@ -24,6 +24,12 @@
   let rateDirty = false;
   let rightHeld = false;
   let rateReleaseTimer = null;
+  let rateFeedback = null;
+  let rateNotice = null;
+  let rateNoticeBox = null;
+  let rateNoticeRevision = null;
+  let rateNoticeTimer;
+  let rateNoticeRemoveTimer;
   // Revisions prevent a delayed HELLO/storage read from undoing a newer selection.
   let ratePreference = { playbackRate: 1, rateRevision: -1 };
 
@@ -32,6 +38,7 @@
     const revision = Number.isSafeInteger(value.rateRevision) && value.rateRevision >= 0 ? value.rateRevision : 0;
     if (revision < ratePreference.rateRevision) return;
     if (revision === ratePreference.rateRevision && value.playbackRate === ratePreference.playbackRate) return;
+    if ((rateFeedback && rateFeedback.revision !== revision) || (rateNotice && rateNoticeRevision !== revision)) clearRateFeedback();
     ratePreference = { playbackRate: value.playbackRate, rateRevision: revision };
     rateDirty = true;
     applyRate();
@@ -65,6 +72,7 @@
       if (speedMedia.playbackRate !== rate) speedMedia.playbackRate = rate;
       rateDirty = false;
     } finally { applyingRate = false; }
+    flushRateFeedback();
   }
   function onSpeedMetadata() { rateDirty = true; applyRate(); }
   function releaseNativeRate() {
@@ -86,6 +94,7 @@
   }
   function syncPlayerSpeed() {
     if (speedURL !== location.href) {
+      clearRateFeedback();
       speedURL = location.href;
       pendingSpeed = null;
       rightHeld = false;
@@ -96,6 +105,7 @@
     }
     const found = videoPage() ? findMedia() : null;
     if (found !== speedMedia) {
+      clearRateFeedback();
       speedMedia?.removeEventListener('loadedmetadata', onSpeedMetadata);
       speedMedia = found;
       speedMedia?.addEventListener('loadedmetadata', onSpeedMetadata);
@@ -117,6 +127,81 @@
       }
     }
     applyRate();
+    flushRateFeedback();
+  }
+  function clearRateFeedback() {
+    rateFeedback = null;
+    clearTimeout(rateNoticeTimer);
+    clearTimeout(rateNoticeRemoveTimer);
+    rateNotice?.remove();
+    rateNotice = null;
+    rateNoticeBox = null;
+    rateNoticeRevision = null;
+  }
+  function renderRateFeedback(feedback, deferred) {
+    const container = speedMedia?.closest('.bpx-player-video-area') ||
+      speedMedia?.closest('.bpx-player-video-wrap, .bilibili-player-video, #bilibili-player');
+    if (!container || container.closest('[data-server-rendered]')) return false;
+    if (!rateNotice?.isConnected || rateNotice.parentElement !== container) {
+      rateNotice?.remove();
+      rateNotice = document.createElement('div');
+      rateNotice.id = 'bq-speed-feedback';
+      rateNotice.setAttribute('role', 'status');
+      rateNotice.setAttribute('aria-live', 'polite');
+      rateNotice.setAttribute('aria-atomic', 'true');
+      rateNotice.style.cssText = 'all:initial;position:absolute;top:16px;left:16px;z-index:2147483647;pointer-events:none;max-width:calc(100% - 32px);font:13px/20px "Microsoft YaHei",system-ui,sans-serif;opacity:0;transform:translateY(-3px);transition:opacity 150ms ease,transform 150ms ease;';
+      rateNoticeBox = document.createElement('div');
+      rateNoticeBox.style.cssText = 'box-sizing:border-box;padding:6px 10px;border-radius:6px;color:#fff;background:rgba(20,22,26,.72);border:1px solid rgba(255,255,255,.09);box-shadow:0 2px 10px #0002;font:inherit;';
+      rateNotice.attachShadow({ mode: 'closed' }).append(rateNoticeBox);
+      container.append(rateNotice);
+    }
+    // A closed shadow root keeps native player styles out of the compact hint.
+    const label = deferred ? '固定倍速' : feedback.atLimit ?
+      feedback.step > 0 ? '已达最高倍速' : '已达最低倍速' : '播放速度';
+    const note = deferred ? '松开后生效' : '';
+    const text = `${label} ${feedback.rate}×${note ? '，' + note : ''}`;
+    rateNotice.setAttribute('aria-label', text);
+    // Rebuild only our own shadow content; never change the player's layout styles.
+    const box = rateNoticeBox;
+    box.replaceChildren();
+    const prefix = document.createElement('span'); prefix.textContent = label;
+    const value = document.createElement('strong'); value.textContent = `${feedback.rate}×`;
+    value.style.cssText = 'font-weight:600;font-variant-numeric:tabular-nums;margin-left:5px';
+    box.append(prefix, value);
+    if (note) {
+      const suffix = document.createElement('span'); suffix.textContent = note;
+      suffix.style.cssText = 'font-size:12px;color:#d0d3d9;margin-left:8px';
+      box.append(suffix);
+    }
+    rateNoticeRevision = feedback.revision;
+    clearTimeout(rateNoticeTimer);
+    clearTimeout(rateNoticeRemoveTimer);
+    const current = rateNotice;
+    requestAnimationFrame(() => {
+      if (rateNotice === current) { current.style.opacity = '1'; current.style.transform = 'none'; }
+    });
+    rateNoticeTimer = setTimeout(() => {
+      if (rateNotice !== current) return;
+      current.style.opacity = '0'; current.style.transform = 'translateY(-3px)';
+      rateNoticeRemoveTimer = setTimeout(() => {
+        if (rateNotice === current) { current.remove(); rateNotice = null; rateNoticeBox = null; rateNoticeRevision = null; }
+      }, 150);
+    }, 1350);
+    return true;
+  }
+  function flushRateFeedback() {
+    const feedback = rateFeedback;
+    if (!feedback) return;
+    if (feedback.url !== location.href || feedback.revision !== ratePreference.rateRevision) { clearRateFeedback(); return; }
+    if (!speedMedia) return;
+    const deferred = rightHeld || rateReleaseTimer !== null || nativeRateHintVisible();
+    if (deferred) {
+      if (!feedback.shownDeferred) feedback.shownDeferred = renderRateFeedback(feedback, true);
+      return;
+    }
+    if (rateDirty || speedMedia.playbackRate !== feedback.rate) return;
+    if (feedback.shownDeferred) feedback.atLimit = false;
+    if (renderRateFeedback(feedback, false)) rateFeedback = null;
   }
   async function changePlayerSpeed(fields) {
     const attempt = { url: location.href, rate: fields.value };
@@ -125,7 +210,13 @@
     if (pendingSpeed !== attempt) return;
     pendingSpeed = null;
     if (location.href !== attempt.url) return;
-    if (result?.ok) acceptRate(result);
+    if (result?.ok) {
+      acceptRate(result);
+      if (fields.step && result.rateRevision === ratePreference.rateRevision) {
+        rateFeedback = { url: attempt.url, rate: result.playbackRate, revision: result.rateRevision, step: fields.step, atLimit: result.atLimit, shownDeferred: false };
+        flushRateFeedback();
+      }
+    }
     else {
       rateDirty = true;
       applyRate();
@@ -353,8 +444,8 @@
       return;
     }
     if (message.type === 'BQ_RATE' && message.runId === config?.runId && matching()) acceptRate(message);
-    if (message.type === 'BQ_STOP') deactivate(true);
-    if (message.type === 'BQ_FINISH') { deactivate(); showNotice('队列播放已结束', null, true); }
+    if (message.type === 'BQ_STOP') { clearRateFeedback(); deactivate(true); }
+    if (message.type === 'BQ_FINISH') { clearRateFeedback(); deactivate(); showNotice('队列播放已结束', null, true); }
   });
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'local' && changes.playlist) acceptRate(changes.playlist.newValue);
